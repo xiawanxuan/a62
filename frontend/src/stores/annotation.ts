@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Annotation, SonarFile, Category, Snapshot, OnlineUser } from '@/types'
-import { api } from '@/utils/api'
+import { api, categoryApi, getOrCreateUserId, getUserName, setUserName as saveUserName } from '@/utils/api'
 
 export const useAnnotationStore = defineStore('annotation', {
   state: () => ({
@@ -12,9 +12,11 @@ export const useAnnotationStore = defineStore('annotation', {
     snapshots: ref<Snapshot[]>([]),
     onlineUsers: ref<OnlineUser[]>([]),
     selectedAnnotationId: ref<string | null>(null),
-    userId: ref<string>('user_' + Math.random().toString(36).substr(2, 9)),
-    userName: ref<string>('标注员'),
+    selectedCategoryId: ref<string | null>(null),
+    userId: ref<string>(''),
+    userName: ref<string>(''),
     isLoading: ref(false),
+    isCategoriesLoading: ref(false),
     draftCacheKey: ref<Record<string, Annotation[]>>({})
   }),
 
@@ -23,19 +25,45 @@ export const useAnnotationStore = defineStore('annotation', {
       return state.annotations.find(a => a.id === state.selectedAnnotationId) || null
     },
 
+    selectedCategory: (state) => {
+      return state.categories.find(c => c.id === state.selectedCategoryId) || null
+    },
+
+    globalCategories: (state) => {
+      return state.categories.filter(c => !c.userId)
+    },
+
+    userCategories: (state) => {
+      return state.categories.filter(c => !!c.userId)
+    },
+
     annotationsByCategory: (state) => {
       const grouped: Record<string, Annotation[]> = {}
       state.annotations.forEach(a => {
-        if (!grouped[a.categoryId]) {
-          grouped[a.categoryId] = []
+        const key = a.categoryId || '__uncategorized__'
+        if (!grouped[key]) {
+          grouped[key] = []
         }
-        grouped[a.categoryId].push(a)
+        grouped[key].push(a)
       })
       return grouped
-    }
-  },
+    },
 
   actions: {
+    initIdentity() {
+      if (!this.userId) {
+        this.userId = getOrCreateUserId()
+      }
+      if (!this.userName) {
+        this.userName = getUserName()
+      }
+    },
+
+    updateUserName(name: string) {
+      this.userName = name
+      saveUserName(name)
+    },
+
     async loadFiles() {
       return new Promise<void>((resolve, reject) => {
         api.get<SonarFile[]>('/files').then(res => {
@@ -46,12 +74,51 @@ export const useAnnotationStore = defineStore('annotation', {
     },
 
     async loadCategories() {
-      return new Promise<void>((resolve, reject) => {
-        api.get<Category[]>('/categories').then(res => {
-          this.categories = res.data
-          resolve()
-        }).catch(reject)
+      this.isCategoriesLoading = true
+      try {
+        const res = await categoryApi.list()
+        this.categories = res.data
+        if (this.categories.length > 0 && !this.selectedCategoryId) {
+          this.selectedCategoryId = this.categories[0].id
+        }
+      } finally {
+        this.isCategoriesLoading = false
+      }
+    },
+
+    async createCategory(data: { name: string; color: string; description?: string }) {
+      const res = await categoryApi.create(data)
+      this.categories.push(res.data)
+      if (!this.selectedCategoryId) {
+        this.selectedCategoryId = res.data.id
+      }
+      return res.data
+    },
+
+    async updateCategory(id: string, data: { name?: string; color?: string; description?: string }) {
+      const res = await categoryApi.update(id, data)
+      const index = this.categories.findIndex(c => c.id === id)
+      if (index !== -1) {
+        this.categories[index] = res.data
+      }
+      return res.data
+    },
+
+    async deleteCategory(id: string) {
+      await categoryApi.remove(id)
+      this.categories = this.categories.filter(c => c.id !== id)
+      this.annotations.forEach(a => {
+        if (a.categoryId === id) {
+          a.categoryId = null
+        }
       })
+      if (this.selectedCategoryId === id) {
+        this.selectedCategoryId = this.categories.length > 0 ? this.categories[0].id : null
+      }
+    },
+
+    setSelectedCategory(id: string | null) {
+      this.selectedCategoryId = id
     },
 
     async selectFile(fileId: string) {
@@ -62,12 +129,12 @@ export const useAnnotationStore = defineStore('annotation', {
           api.get<Annotation[]>(`/annotations/file/${fileId}`),
           api.get<Snapshot[]>(`/snapshots/file/${fileId}`)
         ])
-        
+
         this.currentFile = fileRes.data
         this.annotations = annRes.data
         this.snapshots = snapRes.data
         this.selectedAnnotationId = null
-        
+
         const cached = this.draftCacheKey[fileId]
         if (cached && cached.length > this.annotations.length) {
           console.log('Found local draft cache')
@@ -80,14 +147,18 @@ export const useAnnotationStore = defineStore('annotation', {
     async createAnnotation(annotation: Omit<Annotation, 'id' | 'createdAt' | 'updatedAt'>) {
       if (!this.currentFile) return null
 
-      const ann = { ...annotation, fileId: this.currentFile.id }
+      const ann = {
+        ...annotation,
+        fileId: this.currentFile.id,
+        createdBy: this.userId || annotation.createdBy
+      }
       const res = await api.post<Annotation>('/annotations', ann)
-      
+
       const newAnn = res.data
       this.annotations.push(newAnn)
-      
+
       this.saveDraftCache()
-      
+
       return newAnn
     },
 

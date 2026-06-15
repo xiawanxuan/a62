@@ -36,7 +36,7 @@ type CreateAnnotationRequest struct {
 	FileID     string            `json:"fileId" binding:"required"`
 	Type       string            `json:"type" binding:"required,oneof=rectangle polygon"`
 	Points     []models.Point    `json:"points" binding:"required,min=2"`
-	CategoryID string            `json:"categoryId" binding:"required"`
+	CategoryID *string           `json:"categoryId"`
 	Label      string            `json:"label"`
 	Color      string            `json:"color"`
 	CreatedBy  string            `json:"createdBy" binding:"required"`
@@ -105,9 +105,9 @@ func CreateAnnotation(c *gin.Context) {
 
 type UpdateAnnotationRequest struct {
 	Points     []models.Point `json:"points"`
-	CategoryID string         `json:"categoryId"`
-	Label      string         `json:"label"`
-	Color      string         `json:"color"`
+	CategoryID *string        `json:"categoryId"`
+	Label      *string        `json:"label"`
+	Color      *string        `json:"color"`
 }
 
 func UpdateAnnotation(c *gin.Context) {
@@ -134,14 +134,14 @@ func UpdateAnnotation(c *gin.Context) {
 		existing.Points = datatypes.JSON(pointsJSON)
 	}
 
-	if req.CategoryID != "" {
+	if req.CategoryID != nil {
 		existing.CategoryID = req.CategoryID
 	}
-	if req.Label != "" {
-		existing.Label = req.Label
+	if req.Label != nil {
+		existing.Label = *req.Label
 	}
-	if req.Color != "" {
-		existing.Color = req.Color
+	if req.Color != nil {
+		existing.Color = *req.Color
 	}
 	existing.UpdatedAt = time.Now()
 

@@ -10,7 +10,7 @@ export interface Annotation {
   fileId: string
   type: AnnotationType
   points: Point[]
-  categoryId: string
+  categoryId: string | null
   label: string
   color: string
   createdAt: number
@@ -32,9 +32,13 @@ export interface SonarFile {
 
 export interface Category {
   id: string
+  userId?: string | null
   name: string
   color: string
   description: string
+  isBuiltin: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 export interface Snapshot {

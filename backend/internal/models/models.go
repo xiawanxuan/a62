@@ -31,7 +31,7 @@ type Annotation struct {
 	FileID     string         `gorm:"type:uuid;not null;index" json:"fileId"`
 	Type       string         `gorm:"type:varchar(20);not null" json:"type"`
 	Points     datatypes.JSON `gorm:"type:jsonb;not null" json:"points"`
-	CategoryID string         `gorm:"type:uuid;not null" json:"categoryId"`
+	CategoryID *string        `gorm:"type:uuid" json:"categoryId"`
 	Label      string         `gorm:"type:varchar(100)" json:"label"`
 	Color      string         `gorm:"type:varchar(20)" json:"color"`
 	CreatedBy  string         `gorm:"type:varchar(100);not null" json:"createdBy"`
@@ -41,11 +41,14 @@ type Annotation struct {
 }
 
 type Category struct {
-	ID          string    `gorm:"primaryKey;type:uuid" json:"id"`
-	Name        string    `gorm:"type:varchar(100);not null;unique" json:"name"`
-	Color       string    `gorm:"type:varchar(20);not null" json:"color"`
-	Description string    `gorm:"type:text" json:"description"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          string     `gorm:"primaryKey;type:uuid" json:"id"`
+	UserID      *string    `gorm:"type:varchar(100);index" json:"userId,omitempty"`
+	Name        string     `gorm:"type:varchar(100);not null" json:"name"`
+	Color       string     `gorm:"type:varchar(20);not null" json:"color"`
+	Description string     `gorm:"type:text" json:"description"`
+	IsBuiltin   bool       `gorm:"default:false" json:"isBuiltin"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
 }
 
 type Snapshot struct {

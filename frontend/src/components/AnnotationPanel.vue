@@ -2,6 +2,17 @@
   <div class="annotation-panel">
     <div class="panel-header">
       <h3><el-icon><Edit /></el-icon> 标注工具</h3>
+      <div class="header-user">
+        <el-tooltip content="修改昵称" placement="left">
+          <el-input
+            v-model="userNameInput"
+            class="name-input"
+            size="small"
+            @blur="commitUserName"
+            @keyup.enter="commitUserName"
+          />
+        </el-tooltip>
+      </div>
     </div>
 
     <div class="tools-section">
@@ -38,21 +49,65 @@
     </div>
 
     <div class="section">
-      <div class="section-title">目标分类</div>
-      <div class="category-list">
-        <div
-          v-for="cat in store.categories"
-          :key="cat.id"
-          class="category-item"
-          :class="{ active: tool.selectedCategoryId.value === cat.id }"
-          @click="tool.setCategory(cat.id)"
+      <div class="section-title">
+        <span>目标分类</span>
+        <el-button
+          :icon="Setting"
+          size="small"
+          text
+          type="primary"
+          @click="categoryDialogVisible = true"
         >
-          <span class="color-dot" :style="{ backgroundColor: cat.color }" />
-          <span class="cat-name">{{ cat.name }}</span>
-          <span class="cat-count">
-            {{ (store.annotationsByCategory[cat.id] || []).length }}
-          </span>
+          管理
+        </el-button>
+      </div>
+
+      <div class="category-group" v-if="store.globalCategories.length > 0">
+        <div class="group-label">内置</div>
+        <div class="category-list">
+          <div
+            v-for="cat in store.globalCategories"
+            :key="cat.id"
+            class="category-item"
+            :class="{ active: store.selectedCategoryId === cat.id }"
+            @click="store.setSelectedCategory(cat.id)"
+          >
+            <span class="color-dot" :style="{ backgroundColor: cat.color }" />
+            <span class="cat-name">{{ cat.name }}</span>
+            <span class="cat-count">
+              {{ (store.annotationsByCategory[cat.id] || []).length }}
+            </span>
+          </div>
         </div>
+      </div>
+
+      <div class="category-group" v-if="store.userCategories.length > 0">
+        <div class="group-label">
+          我的
+          <el-tag size="small" type="success" effect="plain">{{ store.userCategories.length }}</el-tag>
+        </div>
+        <div class="category-list">
+          <div
+            v-for="cat in store.userCategories"
+            :key="cat.id"
+            class="category-item"
+            :class="{ active: store.selectedCategoryId === cat.id }"
+            @click="store.setSelectedCategory(cat.id)"
+          >
+            <span class="color-dot" :style="{ backgroundColor: cat.color }" />
+            <span class="cat-name">{{ cat.name }}</span>
+            <span class="cat-count">
+              {{ (store.annotationsByCategory[cat.id] || []).length }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="store.categories.length === 0 && !store.isCategoriesLoading" class="empty-annotations">
+        暂无分类，点击右上角"管理"添加
+      </div>
+      <div v-if="store.isCategoriesLoading" class="empty-annotations">
+        加载中...
       </div>
     </div>
 
@@ -132,17 +187,23 @@
         <div class="shortcut-item"><kbd>Alt+拖动</kbd> 平移</div>
       </div>
     </div>
+
+    <CategoryManagerDialog v-model="categoryDialogVisible" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, watch, inject } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Edit, Grid, Operation, Close, InfoFilled, Delete, Refresh
+  Edit, Grid, Operation, Close, InfoFilled, Delete, Refresh, Setting
 } from '@element-plus/icons-vue'
 import { useAnnotationStore } from '@/stores/annotation'
-import { useAnnotationTool } from '@/composables/useAnnotationTool'
-import type { Annotation, Point } from '@/types'
+import type { Annotation } from '@/types'
+import CategoryManagerDialog from '@/components/CategoryManagerDialog.vue'
+import type { useAnnotationTool } from '@/composables/useAnnotationTool'
+
+type AnnotationToolType = ReturnType<typeof useAnnotationTool>
 
 const emit = defineEmits<{
   createAnnotation: []
@@ -150,10 +211,30 @@ const emit = defineEmits<{
 
 const store = useAnnotationStore()
 
-const tool = useAnnotationTool(
-  () => ({ x: 0, y: 0 }) as Point,
-  () => {}
-)
+const tool = inject('annotationTool') as AnnotationToolType
+
+watch(() => store.categories, (cats) => {
+  tool.setCategories(cats)
+}, { immediate: true, deep: true })
+
+watch(() => store.selectedCategoryId, (id) => {
+  tool.setCategory(id)
+}, { immediate: true })
+
+const categoryDialogVisible = ref(false)
+
+const userNameInput = ref(store.userName)
+watch(() => store.userName, (n) => { userNameInput.value = n }, { immediate: true })
+
+const commitUserName = () => {
+  const name = userNameInput.value.trim()
+  if (name && name !== store.userName) {
+    store.updateUserName(name)
+    ElMessage.success(`昵称已更新为: ${name}`)
+  } else if (!name) {
+    userNameInput.value = store.userName
+  }
+}
 
 function handleCancel() {
   tool.cancelDraft()
@@ -209,6 +290,10 @@ function formatTime(timestamp: number) {
   padding: 16px;
   border-bottom: 1px solid #2a2a4a;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 
   h3 {
     display: flex;
@@ -217,6 +302,18 @@ function formatTime(timestamp: number) {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .name-input {
+    flex: 1;
+    min-width: 0;
+    max-width: 140px;
+
+    :deep(.el-input__inner) {
+      text-align: right;
+      font-size: 12px;
+    }
   }
 }
 
@@ -267,6 +364,27 @@ function formatTime(timestamp: number) {
   color: #60a5fa;
 }
 
+.category-group {
+  margin-bottom: 12px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.group-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  padding-left: 4px;
+}
+
 .category-list {
   display: flex;
   flex-direction: column;
@@ -295,11 +413,15 @@ function formatTime(timestamp: number) {
     height: 14px;
     border-radius: 50%;
     flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.15);
   }
 
   .cat-name {
     flex: 1;
     font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .cat-count {

@@ -29,7 +29,7 @@ func main() {
 	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-Id")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
@@ -65,6 +65,8 @@ func main() {
 		{
 			categories.GET("", handlers.ListCategories)
 			categories.POST("", handlers.CreateCategory)
+			categories.PUT("/:id", handlers.UpdateCategory)
+			categories.DELETE("/:id", handlers.DeleteCategory)
 		}
 	}
 

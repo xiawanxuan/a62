@@ -69,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick, provide } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Document, ZoomIn, ZoomOut, RefreshLeft, Loading, Picture
@@ -95,6 +95,8 @@ const tool = useAnnotationTool(
   handleAnnotationCreated
 )
 
+provide('annotationTool', tool)
+
 watch(() => store.currentFile, async (newFile) => {
   if (newFile) {
     try {
@@ -108,12 +110,12 @@ watch(() => store.currentFile, async (newFile) => {
   }
 })
 
-watch([() => store.annotations, tool.draft, tool.selectedCategory], () => {
+watch([() => store.annotations, tool.draft, () => store.selectedCategory], () => {
   canvas.render(
     store.annotations,
     tool.draft.value.points,
     tool.draft.value.type,
-    tool.selectedCategory.value?.color || '#ff4d4f'
+    store.selectedCategory?.color || '#ff4d4f'
   )
 }, { deep: true })
 
@@ -206,11 +208,11 @@ function handleKeyDown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
+  store.initIdentity()
   await Promise.all([
     store.loadFiles(),
     store.loadCategories()
   ])
-  tool.setCategories(store.categories)
 
   window.addEventListener('keydown', handleKeyDown)
   nextTick(() => canvas.requestRender())

@@ -25,6 +25,27 @@ export function useSonarCanvas(
   let animationFrameId: number | null = null
   let needsRender = false
 
+  let canvasRectCache: { left: number; top: number; width: number; height: number } | null = null
+  let canvasRectCacheTime = 0
+  const RECT_CACHE_TTL = 16
+
+  const getCanvasRect = () => {
+    const now = Date.now()
+    if (!canvasRectCache || now - canvasRectCacheTime > RECT_CACHE_TTL) {
+      const el = canvasRef.value
+      if (el) {
+        const rect = el.getBoundingClientRect()
+        canvasRectCache = { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+        canvasRectCacheTime = now
+      }
+    }
+    return canvasRectCache || { left: 0, top: 0, width: 0, height: 0 }
+  }
+
+  const invalidateCanvasRect = () => {
+    canvasRectCache = null
+  }
+
   const loadImage = async (url: string) => {
     imageLoaded.value = false
     const img = new Image()
@@ -61,17 +82,31 @@ export function useSonarCanvas(
     requestRender()
   }
 
+  const viewportToCanvas = (viewportX: number, viewportY: number): Point => {
+    const rect = getCanvasRect()
+    return {
+      x: viewportX - rect.left,
+      y: viewportY - rect.top
+    }
+  }
+
   const screenToImage = (screenX: number, screenY: number): Point => {
-    const rect = canvasRef.value?.getBoundingClientRect()
-    if (!rect) return { x: 0, y: 0 }
+    const canvasPoint = viewportToCanvas(screenX, screenY)
+    return canvasToImage(canvasPoint.x, canvasPoint.y)
+  }
 
-    const x = (screenX - rect.left - transform.value.offsetX) / transform.value.scale
-    const y = (screenY - rect.top - transform.value.offsetY) / transform.value.scale
-
-    return { x, y }
+  const canvasToImage = (canvasX: number, canvasY: number): Point => {
+    return {
+      x: (canvasX - transform.value.offsetX) / transform.value.scale,
+      y: (canvasY - transform.value.offsetY) / transform.value.scale
+    }
   }
 
   const imageToScreen = (imageX: number, imageY: number): Point => {
+    return imageToCanvas(imageX, imageY)
+  }
+
+  const imageToCanvas = (imageX: number, imageY: number): Point => {
     return {
       x: imageX * transform.value.scale + transform.value.offsetX,
       y: imageY * transform.value.scale + transform.value.offsetY
@@ -79,21 +114,17 @@ export function useSonarCanvas(
   }
 
   const zoomAt = (screenX: number, screenY: number, delta: number) => {
-    const rect = canvasRef.value?.getBoundingClientRect()
-    if (!rect) return
+    const canvasPoint = viewportToCanvas(screenX, screenY)
+    if (canvasPoint.x < 0 || canvasPoint.y < 0) return
 
-    const mouseX = screenX - rect.left
-    const mouseY = screenY - rect.top
-
-    const imageX = (mouseX - transform.value.offsetX) / transform.value.scale
-    const imageY = (mouseY - transform.value.offsetY) / transform.value.scale
+    const imagePoint = canvasToImage(canvasPoint.x, canvasPoint.y)
 
     const scaleFactor = Math.exp(-delta * wheelSensitivity)
     let newScale = transform.value.scale * scaleFactor
     newScale = Math.max(minScale, Math.min(maxScale, newScale))
 
-    transform.value.offsetX = mouseX - imageX * newScale
-    transform.value.offsetY = mouseY - imageY * newScale
+    transform.value.offsetX = canvasPoint.x - imagePoint.x * newScale
+    transform.value.offsetY = canvasPoint.y - imagePoint.y * newScale
     transform.value.scale = newScale
 
     requestRender()
@@ -105,15 +136,24 @@ export function useSonarCanvas(
     requestRender()
   }
 
+  const getCanvasCssSize = () => {
+    const container = containerRef.value
+    if (!container) return { width: 0, height: 0 }
+    return { width: container.clientWidth, height: container.clientHeight }
+  }
+
   const render = (annotations: Annotation[], draftPoints: Point[] = [], draftType: string | null = null, selectedCategoryColor: string = '#ff4d4f') => {
     if (!ctx.value || !canvasRef.value) return
 
-    const canvas = canvasRef.value
     const c = ctx.value
+    const { width: cssWidth, height: cssHeight } = getCanvasCssSize()
 
-    c.clearRect(0, 0, canvas.width, canvas.height)
+    c.save()
+    c.setTransform(1, 0, 0, 1, 0, 0)
+    c.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height)
     c.fillStyle = '#1a1a2e'
-    c.fillRect(0, 0, canvas.width, canvas.height)
+    c.fillRect(0, 0, canvasRef.value.width, canvasRef.value.height)
+    c.restore()
 
     if (image.value && imageLoaded.value) {
       c.save()
@@ -137,7 +177,7 @@ export function useSonarCanvas(
   }
 
   const renderAnnotation = (c: CanvasRenderingContext2D, annotation: Annotation) => {
-    const points = annotation.points.map(p => imageToScreen(p.x, p.y))
+    const points = annotation.points.map(p => imageToCanvas(p.x, p.y))
 
     c.save()
     c.strokeStyle = annotation.color
@@ -182,7 +222,7 @@ export function useSonarCanvas(
   }
 
   const renderDraftAnnotation = (c: CanvasRenderingContext2D, points: Point[], type: string, color: string) => {
-    const screenPoints = points.map(p => imageToScreen(p.x, p.y))
+    const screenPoints = points.map(p => imageToCanvas(p.x, p.y))
 
     c.save()
     c.strokeStyle = color
@@ -300,7 +340,7 @@ export function useSonarCanvas(
   }
 
   const resize = () => {
-    if (!canvasRef.value || !containerRef.value) return
+    if (!canvasRef.value || !containerRef.value || !ctx.value) return
 
     const container = containerRef.value
     const dpr = window.devicePixelRatio || 1
@@ -310,9 +350,8 @@ export function useSonarCanvas(
     canvasRef.value.style.width = container.clientWidth + 'px'
     canvasRef.value.style.height = container.clientHeight + 'px'
 
-    if (ctx.value) {
-      ctx.value.scale(dpr, dpr)
-    }
+    ctx.value.setTransform(dpr, 0, 0, dpr, 0, 0)
+    invalidateCanvasRect()
     requestRender()
   }
 
